@@ -3,4 +3,5 @@ tar -zxvf ViennaRNA-2.4.15.tar.gz
 cd ViennaRNA-2.4.15
 ./configure
 make
-sudo make install
+make install
+rm -f ViennaRNA-2.4.15.tar.gz
