@@ -17,7 +17,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import roc_auc_score as AUC_score
 
 def main():
-    df = pd.read_csv('../lib/train2.csv')
+    df = pd.read_csv('../lib/training.csv')
 
     X = df.iloc[:,:-1]
     y = df.iloc[:,-1]

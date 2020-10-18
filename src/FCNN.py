@@ -26,7 +26,7 @@ def main():
     BATCH_SIZE = 64
     LEARNING_RATE = 0.0001
 
-    df = pd.read_csv('../lib/train2.csv')
+    df = pd.read_csv('../lib/training.csv')
 
     X = df.iloc[:,:-1].values
     y = df.iloc[:,-1].values
