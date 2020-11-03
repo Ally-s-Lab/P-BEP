@@ -6,7 +6,11 @@ Created on Thu Oct  8 17:57:06 2020
 """
 ##############################
 #CNN :
-
+import os.path as pth
+import yaml
+with open('../config.yaml', 'r') as fp:
+    config = yaml.load(fp, yaml.FullLoader)
+path = pth.dirname(pth.abspath(__file__))[:-3] + '/'
 import pandas as pd
 import numpy as np
 import torch
@@ -17,7 +21,7 @@ import torch.nn.functional as F
 
 def main():
 
-    df = pd.read_csv('../lib/training.csv')
+    df = pd.read_csv(path + config['training_data'])
 
     X = df.iloc[:,:-1].values
     y = df.iloc[:,-1].values
@@ -25,7 +29,7 @@ def main():
 
 
 
-    def save_checkpoint(state, filename = '../models/CNN2.pth'):
+    def save_checkpoint(state, filename = path + 'models/CNN.pth'):
       print('SAVING CHECKPOINT')
       torch.save(state, filename)
 
@@ -122,7 +126,7 @@ def main():
             if phase == 'val' and epoch_acc > best_acc:
               best_acc = epoch_acc
               checkpoint = {'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict()}
-             # save_checkpoint(checkpoint)
+              save_checkpoint(checkpoint)
 
 
 

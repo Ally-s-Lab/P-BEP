@@ -5,6 +5,11 @@ Created on Thu Oct  8 17:53:24 2020
 @author: tamiryuv
 """
 ##############################
+import os.path as pth
+import yaml
+with open('../config.yaml', 'r') as fp:
+    config = yaml.load(fp, yaml.FullLoader)
+path = pth.dirname(pth.abspath(__file__))[:-3] + '/'
 #LinearNet
 import numpy as np
 import pandas as pd
@@ -26,7 +31,7 @@ def main():
     BATCH_SIZE = 64
     LEARNING_RATE = 0.0001
 
-    df = pd.read_csv('../lib/training.csv')
+    df = pd.read_csv(path + config['training_data'])
 
     X = df.iloc[:,:-1].values
     y = df.iloc[:,-1].values
@@ -165,7 +170,7 @@ def main():
                     'state_dict': model.state_dict(),
                     'optimizer' : optimizer.state_dict()}
 
-    torch.save(checkpoint, '../models/linear15CV.pth')
+    torch.save(checkpoint,path + 'models/linear15CV.pth')
 
 if __name__ == '__main__':
     main()

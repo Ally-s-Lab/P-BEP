@@ -1,8 +1,11 @@
 --find-links https://download.pytorch.org/whl/torch_stable.html
-torch==1.4.0+cpu
+torch==1.6.0+cpu
 scikit-learn
 numpy
 pandas
 xgboost
 matplotlib
 biopython
+scikit-plot
+imbalanced-learn
+pyyaml

@@ -4,6 +4,11 @@ Created on Mon Sep  7 13:33:12 2020
 
 @author: tamiryuv
 """
+import os.path as pth
+import yaml
+with open('../config.yaml', 'r') as fp:
+    config = yaml.load(fp, yaml.FullLoader)
+path = pth.dirname(pth.abspath(__file__))[:-3] + '/'
 import torch
 import xgboost as xgb
 import pandas as pd
@@ -13,7 +18,11 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from sklearn.metrics import roc_auc_score,f1_score,roc_curve, auc, classification_report,precision_recall_curve
 import matplotlib.pyplot as plt
-from sklearn.model_selection import KFold
+import scikitplot as skplt
+from sklearn.model_selection import train_test_split
+import copy
+from sklearn.model_selection import StratifiedKFold, KFold
+from sklearn.metrics import average_precision_score
 
 class LinearNet(torch.nn.Module):
     def __init__(self):
@@ -67,7 +76,7 @@ class simple_CNN(nn.Module):
 # FC_NN Load
 #
 ################################################################
-checkpoint3 = torch.load('C:/Users/tamiryuv/Desktop/Research/GuySure_Project/linear15CV.pth', map_location='cpu')
+checkpoint3 = torch.load(path + config['FCNN'], map_location='cpu')
 fc_nn = checkpoint3['model']
 fc_nn.load_state_dict(checkpoint3['state_dict'])
 fc_nn.eval()
@@ -78,7 +87,7 @@ fc_nn.eval()
 in_channels = 1
 out_channels = 8
 num_classes = 2
-checkpoint2 = torch.load('C:/Users/tamiryuv/Desktop/Research/GuySure_Project/LSTM_try.pth',map_location='cpu')
+checkpoint2 = torch.load(path + config['CNN'],map_location='cpu')
 cnn = simple_CNN(in_channels,out_channels,num_classes)
 cnn.load_state_dict(checkpoint2['state_dict'])
 cnn.eval()
@@ -88,20 +97,20 @@ cnn.eval()
 ################################################################
 
 xgb_model = xgb.Booster()
-xgb_model.load_model("../models/xgb_model_al_data2.model")
+xgb_model.load_model(path + config['XGB'])
 
 # Test set : 
-positives = pd.read_csv('C:/Users/tamiryuv/Desktop/Research/GuySure_Project/Amitai_sites_df.csv', sep = '\t')
-negatives = pd.read_csv('C:/Users/tamiryuv/Desktop/Research/GuySure_Project/01freq_SNPS.csv')
+positives = pd.read_csv(path + config['testing_data_positives'])
+negatives = pd.read_csv(path + config['testing_data_negatives'])
 test_data = pd.concat([positives,negatives], axis = 0)
-test_data = test_data.sample(5332)
+test_data = test_data.sample(len(test_data))
 X = test_data.iloc[:,:-1]
 y = test_data.iloc[:,-1]
 y_tensor = torch.LongTensor(y.values)
 
 # get all predictions for meta_learner :
 
-softmax = torch.nn.Softmax()
+softmax = torch.nn.Softmax(dim = 1)
 
 def voting_class(X_test):
     if isinstance(X_test,pd.DataFrame):
@@ -128,6 +137,7 @@ def voting_class(X_test):
     acc = (sum([1 if i==j else 0 for i,j in zip(acc_preds,y.values)])) / len(acc_preds)
     pred_proba = [i for i in roc_auc]
     return acc_preds, acc, pred_proba, metas
+### the lines below will output the metrices achived via majority vote : acc, and auc.
 
 y_pred,acc,pred_proba,meta = voting_class(X)
 
@@ -169,7 +179,7 @@ class train_dataset(Dataset):
 
 model = ensemble_features()
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(params = model.parameters(), lr = 0.0005)        
+optimizer = torch.optim.Adam(params = model.parameters(), lr = 0.002)        
 
 meta_train = torch.from_numpy(meta).float()
 
@@ -178,8 +188,8 @@ kfold = KFold(n_splits=10)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
  
-BATCH_SIZE = 64
-EPOCHS = 100
+BATCH_SIZE = 128
+EPOCHS = 20
 total_acc = 0
 CV_auc = []
 tprs = []
@@ -191,9 +201,9 @@ for fold, (train_idx,test_idx) in enumerate(kfold.split(meta_train)):
   X_test = meta_train[test_idx]
   y_train = y_tensor[train_idx]
   y_test = y_tensor[test_idx]
-
-  train_data = train_dataset(torch.FloatTensor(X_test), 
-                       torch.LongTensor(y_test))
+  print(np.unique(y_test.detach().numpy()))
+  train_data = train_dataset(torch.FloatTensor(X_train), 
+                       torch.LongTensor(y_train))
 
   train_loader = DataLoader(dataset=train_data, batch_size=BATCH_SIZE, shuffle=True)
 
@@ -219,6 +229,8 @@ for fold, (train_idx,test_idx) in enumerate(kfold.split(meta_train)):
         model.eval()
       for batch_idx, (x_batch,y_batch) in enumerate(dataloader[phase]):
         x_batch,y_batch = x_batch.to(device), y_batch.to(device)
+        if len(np.unique(y_batch.detach().numpy())) == 1:
+            continue
         outs = model(x_batch)
         loss = criterion(outs,y_batch)
         if phase == 'train':
@@ -250,6 +262,7 @@ for fold, (train_idx,test_idx) in enumerate(kfold.split(meta_train)):
         
   
   total_acc += float(correct*100) / float(BATCH_SIZE*(batch_idx+1))
+  #print(phase, total_acc, correct)
 total_auc = np.mean(CV_auc)
 total_acc = (total_acc / kfold.get_n_splits()) 
 model.load_state_dict(best_wts) 
@@ -275,7 +288,7 @@ ax.set(xlim=[-0.05, 1.05], ylim=[-0.05, 1.05],
        title="Receiver operating characteristic (10 fold CV)")
 ax.legend(loc="lower right")
 plt.show()
-print('\n\nTotal accuracy cross validation: {:.3f}% and AUC: {} '.format(total_acc,total_auc))
+print('\n\nTotal cross validation AUC:{:.3f}% '.format(total_auc*100))
 
 
 # print('\n')
@@ -283,8 +296,8 @@ print('\n\nTotal accuracy cross validation: {:.3f}% and AUC: {} '.format(total_a
 
 
 # import shap
-# import numpy as np
-# import pandas as pd
+# # import numpy as np
+# # import pandas as pd
 
 
 

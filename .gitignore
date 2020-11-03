@@ -1,2 +1,4 @@
 ViennaRNA-2.4.15
 bin/*
+venv*
+*.pyc

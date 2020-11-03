@@ -1,10 +1,13 @@
 from Bio import Entrez, SeqIO
 import pickle
 import sys
+import yaml
 
 def main():
+    with open('../config.yaml','r') as fp:
+        config = yaml.load(fp,yaml.FullLoader)
     sequences = []
-    Entrez.email = ""
+    Entrez.email = config['email']
     for i in range(1,25):
         i = str(i)
         sys.stdout.write('\rgetting chromosome ' + i + '/24...')

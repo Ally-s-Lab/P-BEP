@@ -1,0 +1,7 @@
+email: none
+training_data: lib/training.csv
+testing_data_positives: lib/testing_positives.csv
+testing_data_negatives: lib/testing_negatives.csv
+CNN: pretrained_models/CNN.pth
+FCNN: pretrained_models/FC_NN.pth
+XGB: pretrained_models/XGB.model

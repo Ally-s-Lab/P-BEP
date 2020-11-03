@@ -4,7 +4,11 @@ Created on Sun Sep  6 17:03:42 2020
 
 @author: gilta
 """
-
+import os.path as pth
+import yaml
+with open('../config.yaml', 'r') as fp:
+    config = yaml.load(fp, yaml.FullLoader)
+path = pth.dirname(pth.abspath(__file__))[:-3] + '/'
 import numpy as np
 import pandas as pd
 import xgboost as xgb
@@ -17,7 +21,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import roc_auc_score as AUC_score
 
 def main():
-    df = pd.read_csv('../lib/training.csv')
+    df = pd.read_csv(path + config['training_data'])
 
     X = df.iloc[:,:-1]
     y = df.iloc[:,-1]
@@ -169,7 +173,7 @@ def main():
         evals=[(xg_test, "Test")],
         early_stopping_rounds=early_stopping)
 
-    best_model.save_model("../models/xgb_model_al_data2.model")
+    best_model.save_model(path + "models/xgb_model.model")
     '''
     all the code below is optional, it is for loading 
     and predicting a trained XGB model
