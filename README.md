@@ -51,22 +51,18 @@ Finally, you may need to modify the following line, based on the version of Vien
 
 The true ensemble classifier is a majority-vote among 3 different models. To use the classifier,
 review the config.yaml file and verify the data you wish to use. Then simply execute
-`python3 -m ensemble_voting_classifier`. # SAVE RESULTS TO SOMEPLACE
+`python3 -m ensemble_voting_classifier` or import and use the main function and save the return value.
 
 ### Training a model
 
-##### Training base models
 In each of the modules "CNN.py", "FCNN.py", XGBoost_train_load_and_pred.py":  
  - Verify the data you wish to use is entered correctly in config.yaml
  - Execute the module - e.g `python3 -m CNN`
 
-##### Training the metapredictor
+### Using the metapredictor
 
  - Verify the models you wish to use are entered correcly in config.yaml
- - Execute the module - `python3 -m ensemble_voting_classifier`
- 
- ### Making predictions
- 
-...
+ - Execute the module - `python3 -m ensemble_voting_classifier` or import and use the main function.
+
 
 

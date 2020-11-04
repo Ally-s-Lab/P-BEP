@@ -6,23 +6,20 @@ Created on Mon Sep  7 13:33:12 2020
 """
 import os.path as pth
 import yaml
-with open('../config.yaml', 'r') as fp:
-    config = yaml.load(fp, yaml.FullLoader)
 path = pth.dirname(pth.abspath(__file__))[:-3] + '/'
+with open(path + 'config.yaml', 'r') as fp:
+    config = yaml.load(fp, yaml.FullLoader)
+
 import torch
 import xgboost as xgb
 import pandas as pd
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
-from sklearn.metrics import roc_auc_score,f1_score,roc_curve, auc, classification_report,precision_recall_curve
+from sklearn.metrics import roc_auc_score,roc_curve
 import matplotlib.pyplot as plt
-import scikitplot as skplt
-from sklearn.model_selection import train_test_split
-import copy
-from sklearn.model_selection import StratifiedKFold, KFold
-from sklearn.metrics import average_precision_score
+from sklearn.metrics import confusion_matrix
+
 
 class LinearNet(torch.nn.Module):
     def __init__(self):
@@ -71,258 +68,98 @@ class simple_CNN(nn.Module):
 
 
 
+def main():
+    ################################################################
+    # FC_NN Load
+    #
+    ################################################################
+    checkpoint3 = torch.load(path + config['FCNN'], map_location='cpu')
+    fc_nn = checkpoint3['model']
+    fc_nn.load_state_dict(checkpoint3['state_dict'])
+    fc_nn.eval()
+    ################################################################
+    # CNN Load
+    #
+    ################################################################
+    in_channels = 1
+    out_channels = 8
+    num_classes = 2
+    checkpoint2 = torch.load(path + config['CNN'],map_location='cpu')
+    cnn = simple_CNN(in_channels,out_channels,num_classes)
+    cnn.load_state_dict(checkpoint2['state_dict'])
+    cnn.eval()
+    ################################################################
+    # XGB Load
+    #
+    ################################################################
 
-################################################################
-# FC_NN Load
-#
-################################################################
-checkpoint3 = torch.load(path + config['FCNN'], map_location='cpu')
-fc_nn = checkpoint3['model']
-fc_nn.load_state_dict(checkpoint3['state_dict'])
-fc_nn.eval()
-################################################################
-# CNN Load
-#
-################################################################
-in_channels = 1
-out_channels = 8
-num_classes = 2
-checkpoint2 = torch.load(path + config['CNN'],map_location='cpu')
-cnn = simple_CNN(in_channels,out_channels,num_classes)
-cnn.load_state_dict(checkpoint2['state_dict'])
-cnn.eval()
-################################################################
-# XGB Load
-#
-################################################################
+    xgb_model = xgb.Booster()
+    xgb_model.load_model(path + config['XGB'])
 
-xgb_model = xgb.Booster()
-xgb_model.load_model(path + config['XGB'])
+    # Test set :
+    positives = pd.read_csv(path + config['testing_data_positives'])
+    negatives = pd.read_csv(path + config['testing_data_negatives'])
+    test_data = pd.concat([positives,negatives], axis = 0)
+    test_data = test_data.sample(len(test_data))
+    X = test_data.iloc[:,:-1]
+    y = test_data.iloc[:,-1]
+    y_tensor = torch.LongTensor(y.values)
 
-# Test set : 
-positives = pd.read_csv(path + config['testing_data_positives'])
-negatives = pd.read_csv(path + config['testing_data_negatives'])
-test_data = pd.concat([positives,negatives], axis = 0)
-test_data = test_data.sample(len(test_data))
-X = test_data.iloc[:,:-1]
-y = test_data.iloc[:,-1]
-y_tensor = torch.LongTensor(y.values)
+    # get all predictions for meta_learner :
 
-# get all predictions for meta_learner :
+    softmax = torch.nn.Softmax(dim = 1)
+    def voting_class(X_test):
+        if isinstance(X_test,pd.DataFrame):
+            X_test = X_test.values
+        acc_preds = []
+        roc_auc = []
+        for_meta = []
+        meta = np.empty((0,3))
+        for sample in X_test:
+            sample = sample.reshape(1,-1)
+            xg_data = xgb.DMatrix(sample)
+            torch_data = torch.from_numpy(sample).float()
+            xg_pred = xgb_model.predict(xg_data)
+            fc_nn_pred = softmax(fc_nn(torch_data))[0][1].detach().numpy()
+            cnn_pred = softmax(cnn(torch_data.reshape(1,1,1,51)))[0][1].detach().numpy()
+            current_pred = np.mean([xg_pred,fc_nn_pred,cnn_pred])[0]
+            roc_auc.append(current_pred)
+            for_meta.append([xg_pred.item(),fc_nn_pred.item(),cnn_pred.item()])
+            if current_pred >= 0.52:
+                acc_preds.append(1)
+            else:
+                acc_preds.append(0)
+        metas = np.vstack((meta,for_meta))
+        acc = (sum([1 if i==j else 0 for i,j in zip(acc_preds,y.values)])) / len(acc_preds)
+        pred_proba = [i for i in roc_auc]
+        return acc_preds, acc, pred_proba, metas
+    ### the lines below will output the metrices achived via majority vote : acc, and auc.
 
-softmax = torch.nn.Softmax(dim = 1)
+    y_pred,acc,pred_proba,meta = voting_class(X)
 
-def voting_class(X_test):
-    if isinstance(X_test,pd.DataFrame):
-        X_test = X_test.values
-    acc_preds = []
-    roc_auc = []
-    for_meta = []
-    meta = np.empty((0,3))
-    for sample in X_test:
-        sample = sample.reshape(1,-1)
-        xg_data = xgb.DMatrix(sample)
-        torch_data = torch.from_numpy(sample).float()
-        xg_pred = xgb_model.predict(xg_data)
-        fc_nn_pred = softmax(fc_nn(torch_data))[0][1].detach().numpy()
-        cnn_pred = softmax(cnn(torch_data.reshape(1,1,1,51)))[0][1].detach().numpy()
-        current_pred = np.mean([xg_pred,fc_nn_pred,cnn_pred])[0]
-        roc_auc.append(current_pred)
-        for_meta.append([xg_pred.item(),fc_nn_pred.item(),cnn_pred.item()])
-        if current_pred >= 0.55:
-            acc_preds.append(1)
-        else:
-            acc_preds.append(0)
-    metas = np.vstack((meta,for_meta))
-    acc = (sum([1 if i==j else 0 for i,j in zip(acc_preds,y.values)])) / len(acc_preds)
-    pred_proba = [i for i in roc_auc]
-    return acc_preds, acc, pred_proba, metas
-### the lines below will output the metrices achived via majority vote : acc, and auc.
+    auc_major_votes = roc_auc_score(y_true = y.values, y_score = pred_proba)
 
-y_pred,acc,pred_proba,meta = voting_class(X)
+    def plot_roc_curve(fpr, tpr):
+        plt.plot(fpr, tpr, color='orange', label='ROC (AUC = {:.3f})'.format(auc_major_votes))
+        plt.plot([0, 1], [0, 1], color='darkblue', linestyle='--', label = 'Chance')
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('Receiver Operating Characteristic (ROC) Curve')
+        plt.legend()
+        plt.show()
+    y_true = y.values
+    y_scores = pred_proba
+    fpr, tpr, thresholds = roc_curve(y_true, y_scores)
+    optimal_idx = np.argmax(tpr - fpr)
+    optimal_threshold = thresholds[optimal_idx]
+    plot_roc_curve(fpr, tpr)
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    pos_pred_val = tp/ (tp+fp)
+    neg_pred_val = tn/ (tn+fn)
 
-auc_major_votes = roc_auc_score(y_true = y.values, y_score = pred_proba)
-
-################################################################################
-class ensemble_features(nn.Module):
-  def __init__(self):
-    super(ensemble_features,self).__init__()
-    
-    self.net = nn.Sequential(
-    
-            nn.Linear(3, 200),
-            nn.ReLU(),
-            nn.BatchNorm1d(200),
-            nn.Linear(200,20),
-            nn.ReLU(),
-            nn.BatchNorm1d(20),
-            nn.Linear(20,2))
-            
-  def forward(self,x):
-      return self.net(x)
-
-  
-class train_dataset(Dataset):
-    def __init__(self,X_train,y_train):
-        self.X_train = X_train
-        self.y_train = y_train
-        
-    def __len__(self):
-        return len(self.X_train)
-    
-    def __getitem__(self,index):
-        inputs = self.X_train[index,:]
-        labels = self.y_train[index]
-        
-        return (inputs, labels)
-    
-
-model = ensemble_features()
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(params = model.parameters(), lr = 0.002)        
-
-meta_train = torch.from_numpy(meta).float()
+    # predictions:
+    return np.array(y_pred)
 
 
-kfold = KFold(n_splits=10)
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
- 
-BATCH_SIZE = 128
-EPOCHS = 20
-total_acc = 0
-CV_auc = []
-tprs = []
-aucs = []
-mean_fpr = np.linspace(0, 1, 100)
-fig, ax = plt.subplots()
-for fold, (train_idx,test_idx) in enumerate(kfold.split(meta_train)):
-  X_train = meta_train[train_idx]
-  X_test = meta_train[test_idx]
-  y_train = y_tensor[train_idx]
-  y_test = y_tensor[test_idx]
-  print(np.unique(y_test.detach().numpy()))
-  train_data = train_dataset(torch.FloatTensor(X_train), 
-                       torch.LongTensor(y_train))
-
-  train_loader = DataLoader(dataset=train_data, batch_size=BATCH_SIZE, shuffle=True)
-
-  test_data = train_dataset(torch.FloatTensor(X_test),
-                       torch.LongTensor(y_test))
-  test_loader = DataLoader(dataset=test_data, batch_size=BATCH_SIZE, shuffle=False)
-
-  dataloader = {'train':train_loader,'val': test_loader}
-
-  for epoch in range(EPOCHS):
-    
-    #print('epoch {} started'.format(epoch))
-    for phase in ['train','val']:
-      correct = 0
-      losses = 0
-      auc_l = []
-      best_ac = 0
-      batch_preds = []
-      
-      if phase == 'train':
-        model.train()
-      else:
-        model.eval()
-      for batch_idx, (x_batch,y_batch) in enumerate(dataloader[phase]):
-        x_batch,y_batch = x_batch.to(device), y_batch.to(device)
-        if len(np.unique(y_batch.detach().numpy())) == 1:
-            continue
-        outs = model(x_batch)
-        loss = criterion(outs,y_batch)
-        if phase == 'train':
-          optimizer.zero_grad()
-          loss.backward()
-          optimizer.step()
-        losses += loss.data
-        preds = torch.max(outs.data,dim = 1)[1]
-        correct += (preds == y_batch).sum()
-        if phase == 'val':
-            for_ac = torch.sigmoid(outs[:,1]).data
-            batch_auc = roc_auc_score(y_batch,for_ac)
-            auc_l.append(batch_auc)
-            batch_preds.append(for_ac)
-        batch_pr = [i.tolist() for i in batch_preds]
-        flat_list = [item for sublist in batch_pr for item in sublist]
-    auc_scores = roc_auc_score(y_test, flat_list)
-    fpr, tpr, thresholds = roc_curve(y_test, flat_list)
-    interp_tpr = np.interp(mean_fpr, fpr, tpr)
-    interp_tpr[0] = 0.0
-    tprs.append(interp_tpr)
-    aucs.append(auc_scores)
-    epoch_auc = np.mean(auc_l)
-    if epoch_auc > best_ac:
-        best_ac = epoch_auc
-        best_wts = model.state_dict()
-    CV_auc.append(epoch_auc)
-    
-        
-  
-  total_acc += float(correct*100) / float(BATCH_SIZE*(batch_idx+1))
-  #print(phase, total_acc, correct)
-total_auc = np.mean(CV_auc)
-total_acc = (total_acc / kfold.get_n_splits()) 
-model.load_state_dict(best_wts) 
-
-ax.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r',
-        label='Chance', alpha=.8)
-
-mean_tpr = np.mean(tprs, axis=0)
-mean_tpr[-1] = 1.0
-mean_auc = auc(mean_fpr, mean_tpr)
-std_auc = np.std(aucs)
-ax.plot(mean_fpr, mean_tpr, color='b',
-        label=r'Mean ROC (AUC = %0.2f $\pm$ %0.2f)' % (mean_auc, std_auc),
-        lw=2, alpha=.8)
-
-std_tpr = np.std(tprs, axis=0)
-tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
-tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
-ax.fill_between(mean_fpr, tprs_lower, tprs_upper, color='grey', alpha=.2,
-                label=r'$\pm$ 1 std. dev.')
-
-ax.set(xlim=[-0.05, 1.05], ylim=[-0.05, 1.05],
-       title="Receiver operating characteristic (10 fold CV)")
-ax.legend(loc="lower right")
-plt.show()
-print('\n\nTotal cross validation AUC:{:.3f}% '.format(total_auc*100))
-
-
-# print('\n')
-# print('Finale Acc Score : {} \nChosen By {}'.format(acc if acc > total_acc else total_acc, 'Majority' if acc > total_acc else 'Meta NN'))
-
-
-# import shap
-# # import numpy as np
-# # import pandas as pd
-
-
-
-# explainer = shap.DeepExplainer(model,meta_train)
-# shap_values = explainer.shap_values(meta_train)
-# shap.summary_plot(shap_values[0], meta_train, plot_type = 'dot', show = False, plot_size = (20,10))
-# plt.tight_layout()
-# plt.savefig('Meta_SHAP.jpeg')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+if __name__ == '__main__':
+    print(main())
