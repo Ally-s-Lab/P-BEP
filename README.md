@@ -18,6 +18,10 @@ In order to convert many genomic sites to probability vectors in a reasonable ti
 
 A list of chromosome sequences will be downloaded and saved to lib/sequences.pkl as a pickle file. 
  
+##### Reconstructing the training data file
+If you wish to use the preprocessed feature table included in the training of the included models, execute `sh combine_training_file.sh`
+to recombine the training file at lib/training.csv. You may then wish to delete lib/training1-7.csv.
+
 You can now use a pre-trained model to classify sites or train a model from scratch.
 ## Using and training models
 
